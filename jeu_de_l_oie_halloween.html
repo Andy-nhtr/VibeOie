@@ -198,6 +198,17 @@
       0%, 100% { transform: translateY(0) scale(1); }
       50% { transform: translateY(-4px) scale(1.08); }
     }
+    @keyframes pawnHop {
+      0%   { transform: translateY(0) scale(1); }
+      45%  { transform: translateY(-16px) scale(1.25); }
+      100% { transform: translateY(0) scale(1); }
+    }
+    .pawn-hop { animation: pawnHop 0.22s ease-out; }
+    .board-cell.moving-cell {
+      box-shadow: 0 0 0 3px rgba(232, 89, 12, 0.45), 0 6px 14px rgba(30, 14, 51, 0.2);
+      transform: scale(1.06);
+      z-index: 25;
+    }
     .pawn-active {
       animation: pawnPulse 1.6s infinite ease-in-out;
       filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.25));
@@ -512,7 +523,7 @@
         🍀
       </div>
       <div class="text-[11px] font-bold uppercase tracking-widest text-terracotta-500 mb-1" id="chanceModalSubtitle">
-        CARTE CHANCE TIRÉE !
+        CARTE SORTILÈGE TIRÉE !
       </div>
       <h3 class="font-title text-2xl font-bold text-stone-900 mb-2" id="chanceModalTitle">
         Nom de la carte
@@ -1117,6 +1128,7 @@
 
     let soundEnabled = true;
     let isRolling = false;
+    let movingPlayerIds = new Set();
     let pendingChanceAction = null;
 
     let gameState = {
@@ -1269,14 +1281,16 @@
       return null;
     }
 
-    function createPawnSVG(colorHex, isCurrentTurn = false) {
+    function createPawnSVG(colorHex, isCurrentTurn = false, label = "", sizeClass = "w-8 h-8 sm:w-11 sm:h-11", hop = false) {
+      const initial = (label || "").trim().charAt(0).toUpperCase();
       return `
-        <svg class="w-5 h-5 sm:w-6 sm:h-6 ${isCurrentTurn ? 'pawn-active' : ''}" viewBox="0 0 24 28" fill="none">
-          <ellipse cx="12" cy="25" rx="8" ry="2.2" fill="rgba(0,0,0,0.18)"/>
-          <path d="M6 23.5C6 20.5 8.5 19 12 19C15.5 19 18 20.5 18 23.5H6Z" fill="${colorHex}" stroke="#1F1D1B" stroke-width="1.5"/>
-          <path d="M8.5 19L10 11.5H14L15.5 19H8.5Z" fill="${colorHex}" stroke="#1F1D1B" stroke-width="1.5" stroke-linejoin="round"/>
-          <circle cx="12" cy="7.5" r="4.2" fill="${colorHex}" stroke="#1F1D1B" stroke-width="1.5"/>
-          <circle cx="10.6" cy="6.2" r="1.1" fill="rgba(255,255,255,0.45)"/>
+        <svg class="${sizeClass} ${isCurrentTurn ? 'pawn-active' : ''} ${hop ? 'pawn-hop' : ''}" viewBox="0 0 24 28" fill="none"
+             style="filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff) drop-shadow(0 2px 2px rgba(0,0,0,0.45));">
+          <ellipse cx="12" cy="25" rx="8" ry="2.2" fill="rgba(0,0,0,0.25)"/>
+          <path d="M6 23.5C6 20.5 8.5 19 12 19C15.5 19 18 20.5 18 23.5H6Z" fill="${colorHex}" stroke="#1F1D1B" stroke-width="1.8"/>
+          <path d="M8.5 19L10 11.5H14L15.5 19H8.5Z" fill="${colorHex}" stroke="#1F1D1B" stroke-width="1.8" stroke-linejoin="round"/>
+          <circle cx="12" cy="7.5" r="5.2" fill="${colorHex}" stroke="#1F1D1B" stroke-width="1.8"/>
+          <text x="12" y="10" text-anchor="middle" font-size="7" font-weight="800" fill="#fff" stroke="#1F1D1B" stroke-width="0.5" paint-order="stroke" font-family="sans-serif">${initial}</text>
         </svg>
       `;
     }
@@ -1338,11 +1352,13 @@
 
         // Pions superposés sur la case
         let pawnsHTML = "";
+        const pawnSize = playersHere.length <= 2 ? "w-8 h-8 sm:w-11 sm:h-11"
+          : playersHere.length === 3 ? "w-7 h-7 sm:w-9 sm:h-9" : "w-6 h-6 sm:w-8 sm:h-8";
         if (playersHere.length > 0) {
           pawnsHTML = `
             <div class="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-              <div class="flex -space-x-2 items-center justify-center bg-white/75 backdrop-blur-[1px] px-1 py-0.5 rounded-full shadow-sm">
-                ${playersHere.map(p => createPawnSVG(p.color, p.id === currentPlayer.id)).join("")}
+              <div class="flex -space-x-2 items-center justify-center bg-white/90 ring-2 ring-white px-1 py-0.5 rounded-full shadow-md">
+                ${playersHere.map(p => createPawnSVG(p.color, p.id === currentPlayer.id, p.name, pawnSize, movingPlayerIds.has(p.id))).join("")}
               </div>
             </div>
           `;
@@ -1377,6 +1393,7 @@
           </div>
         `;
 
+        if (playersHere.some(p => movingPlayerIds.has(p.id))) cellDiv.classList.add("moving-cell");
         boardEl.appendChild(cellDiv);
       }
 
@@ -1483,7 +1500,7 @@
 
       if (currentPlayer.skipTurns > 0) {
         document.getElementById("currentPlayerSubtext").textContent =
-          `${currentPlayer.name} se repose à l'Auberge (${currentPlayer.skipTurns} tour à passer).`;
+          `${currentPlayer.name} est enfermé(e) dans le manoir hanté (${currentPlayer.skipTurns} tour à passer).`;
         document.getElementById("rollDiceBtnText").textContent = `Passer le tour de ${currentPlayer.name}`;
       } else {
         document.getElementById("currentPlayerSubtext").textContent =
@@ -1646,8 +1663,8 @@
       // Si le joueur doit passer son tour (Auberge)
       if (currentPlayer.skipTurns > 0) {
         currentPlayer.skipTurns -= 1;
-        addHistoryLog(`${currentPlayer.name} passe son tour à l'Auberge.`, "skip");
-        showLiveActionBanner("🛏️", "Tour passé à l'Auberge", `${currentPlayer.name} sera prêt au prochain tour.`);
+        addHistoryLog(`${currentPlayer.name} passe son tour (manoir hanté).`, "skip");
+        showLiveActionBanner("🏚️", "Tour passé : manoir hanté", `${currentPlayer.name} sera prêt au prochain tour.`);
         endTurnAndAdvance(false);
         return;
       }
@@ -1690,6 +1707,45 @@
       }, 65);
     }
 
+    // Chemin case par case (avec rebond sur la case 63 si besoin)
+    function buildPath(from, to, raw) {
+      const path = [];
+      const max = gameState.maxCell;
+      if (raw !== undefined && raw > max) {
+        for (let c = from + 1; c <= max; c++) path.push(c);
+        for (let c = max - 1; c >= to; c--) path.push(c);
+        return path;
+      }
+      if (to >= from) { for (let c = from + 1; c <= to; c++) path.push(c); }
+      else { for (let c = from - 1; c >= to; c--) path.push(c); }
+      return path;
+    }
+
+    // Déplace les pions un par un, case après case, puis appelle done()
+    // movers = [{ player, from, to, raw? }]
+    function animateMoves(movers, done) {
+      const paths = movers.map(m => ({ p: m.player, path: buildPath(m.from, m.to, m.raw) }));
+      const total = Math.max(0, ...paths.map(x => x.path.length));
+      if (total === 0) { done(); return; }
+      const delay = total > 12 ? 130 : 230;
+      let i = 0;
+      const tick = () => {
+        movingPlayerIds = new Set();
+        paths.forEach(x => {
+          if (i < x.path.length) { x.p.position = x.path[i]; movingPlayerIds.add(x.p.id); }
+        });
+        playSoundEffect("step");
+        renderBoard();
+        i++;
+        if (i < total) {
+          setTimeout(tick, delay);
+        } else {
+          setTimeout(() => { movingPlayerIds = new Set(); done(); }, 300);
+        }
+      };
+      tick();
+    }
+
     function movePlayerAndResolveCell(player, steps) {
       const startPos = player.position;
       let targetPos = startPos + steps;
@@ -1705,8 +1761,7 @@
         }
       }
 
-      player.position = targetPos;
-      playSoundEffect("step");
+      player.position = startPos; // le pion avance ensuite case par case
 
       if (bounced) {
         addHistoryLog(`${player.name} lance ${steps}, dépasse 63 et rebondit sur la case ${targetPos}.`);
@@ -1714,6 +1769,9 @@
         addHistoryLog(`${player.name} avance de ${steps} cases (Case ${startPos} → ${targetPos}).`);
       }
 
+      renderAll();
+
+      animateMoves([{ player, from: startPos, to: targetPos, raw: startPos + steps }], () => {
       renderAll();
 
       // Vérifier la victoire (Case 63)
@@ -1740,6 +1798,7 @@
         document.getElementById("rollDiceBtn").disabled = false;
         endTurnAndAdvance(false);
       }
+      });
     }
 
     function executeActionForPlayer(action, playerId, context) {
@@ -1761,6 +1820,8 @@
         return;
       }
 
+      const oldPositions = {};
+      gameState.players.forEach(pl => { oldPositions[pl.id] = pl.position; });
       if (result && result.gameState) {
         gameState.players = result.gameState.players;
         gameState.board = result.gameState.board;
@@ -1774,6 +1835,17 @@
         showLiveActionBanner(action.icon, action.name, result.message);
       }
 
+      const movers = gameState.players
+        .filter(pl => oldPositions[pl.id] !== undefined && oldPositions[pl.id] !== pl.position)
+        .map(pl => ({ player: pl, from: oldPositions[pl.id], to: pl.position }));
+      if (movers.length > 0) {
+        isRolling = true;
+        document.getElementById("rollDiceBtn").disabled = true;
+      }
+      movers.forEach(m => { m.player.position = m.from; });
+      renderAll();
+
+      animateMoves(movers, () => {
       renderAll();
 
       // Vérifier si l'action a mené le joueur sur la case 63
@@ -1802,6 +1874,7 @@
       } else {
         renderAll();
       }
+      });
     }
 
     // Tirage d'une Carte Sortilège
